@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -114,8 +115,20 @@ def download(m3u8_url: str, output: str, cookies: list):
         formats = list_formats(m3u8_url, tf.name)
         if formats:
             choices = [questionary.Choice(title=label, value=fmt_id) for fmt_id, label in formats]
-            choices.append(questionary.Choice(title="best (automatic)", value="bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"))
-            fmt = questionary.select("Select quality:", choices=choices).ask()
+            best_fmt_id = max(formats, key=lambda f: (lambda m: int(m.group(1)) * int(m.group(2)) if m else 0)(re.search(r'(\d+)x(\d+)', f[1])))[0]
+            fmt = questionary.select(
+                "Select quality:",
+                choices=choices,
+                default=best_fmt_id,
+                style=questionary.Style([
+                    ("highlighted", "noinherit"),
+                    ("selected", "noinherit"),
+                    ("pointer", "noinherit"),
+                    ("question", "noinherit bold"),
+                    ("answer", "noinherit bold fg:#ffaf00"),
+                    ("instruction", "noinherit"),
+                ]),
+            ).ask()
             if not fmt:
                 return
         else:
@@ -171,14 +184,18 @@ if __name__ == "__main__":
     if not output:
         default_name = page_title.strip() if page_title.strip() else "video"
         _placeholder = FormattedText([("italic fg:ansibrightblack", default_name)])
-        output = questionary.text("Output filename:", placeholder=_placeholder).ask()
+        output = questionary.text(
+            "Output filename:",
+            placeholder=_placeholder,
+            style=questionary.Style([("answer", "bold fg:#ffaf00")]),
+        ).ask()
         if output is None:
             sys.exit(0)
         if not output:
             output = default_name
             qmark    = "\033[38;2;95;129;157m?\033[0m"
             question = "\033[1mOutput filename:\033[0m"
-            answer   = f"\033[1m\033[38;2;255;157;0m{output}\033[0m"
+            answer   = f"\033[1m\033[38;2;255;175;0m{output}\033[0m"
             sys.stdout.write(f"\033[1A\r\033[2K{qmark} {question} {answer}\n")
 
     if not output.endswith(".mp4"):
@@ -205,7 +222,7 @@ if __name__ == "__main__":
         chosen = next((u for u in urls if stream_pref in u), urls[0])
         print(f"Selected: {label_for_url(chosen)}")
 
-    print(f"Downloading to {output}...")
+    print(f"Pending download to {output}...")
     saved = download(chosen, output, cookies) or output
     stream_label = "camera/video" if "master" in chosen else "slides/screen"
     size_str = ""
