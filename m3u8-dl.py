@@ -147,7 +147,7 @@ if __name__ == "__main__":
         page_url = page_url.replace("\\", "")
 
     if not output:
-        output = questionary.text("Output filename:", default="video.mp4").ask()
+        output = questionary.text("Output filename:").ask()
         if not output:
             sys.exit(0)
 
