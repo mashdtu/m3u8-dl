@@ -29,13 +29,15 @@ def label_for_url(url: str) -> str:
     return f"[stream]  {name}"
 
 
-def find_m3u8_urls(page_url: str, want: str = "master") -> tuple[list[str], list]:
+def find_m3u8_urls(page_url: str, want: str = "master", headed: bool = False) -> tuple[list[str], list]:
     m3u8_urls = []
     raw_cookies = []
 
+    timeout_ms = 120_000 if headed else 30_000
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=not headed,
             args=["--disable-blink-features=AutomationControlled"],
         )
         context = browser.new_context(
@@ -43,6 +45,7 @@ def find_m3u8_urls(page_url: str, want: str = "master") -> tuple[list[str], list
         )
         page = context.new_page()
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
         def on_request(req):
             if ".m3u8" in req.url:
                 m3u8_urls.append(req.url)
@@ -51,11 +54,15 @@ def find_m3u8_urls(page_url: str, want: str = "master") -> tuple[list[str], list
 
         page.goto(page_url, wait_until="domcontentloaded")
 
+        if headed:
+            print("Browser opened. Log in if prompted, then wait for the video to start loading.")
+
         stop = threading.Event()
-        t = threading.Thread(target=loading_spinner, args=("Loading page...", stop), daemon=True)
+        label = "Waiting for stream (log in if needed)..." if headed else "Loading page..."
+        t = threading.Thread(target=loading_spinner, args=(label, stop), daemon=True)
         t.start()
         try:
-            with page.expect_request(lambda r: want in r.url and ".m3u8" in r.url, timeout=30000):
+            with page.expect_request(lambda r: want in r.url and ".m3u8" in r.url, timeout=timeout_ms):
                 pass
         except Exception:
             pass
@@ -122,8 +129,13 @@ def download(m3u8_url: str, output: str, cookies: list):
 
 
 if __name__ == "__main__":
-    page_url = sys.argv[1].replace("\\", "") if len(sys.argv) > 1 else None
-    output = sys.argv[2] if len(sys.argv) > 2 else None
+    import argparse
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--headed", "-H", action="store_true", help="Open a visible browser (for pages requiring login)")
+    args, remaining = parser.parse_known_args()
+
+    page_url = remaining[0].replace("\\", "") if len(remaining) > 0 else None
+    output = remaining[1] if len(remaining) > 1 else None
 
     if not page_url:
         page_url = questionary.text("Page URL:").ask()
@@ -147,7 +159,10 @@ if __name__ == "__main__":
     if not stream_pref:
         sys.exit(0)
 
-    urls, cookies = find_m3u8_urls(page_url, want=stream_pref if stream_pref != "ask" else "master")
+    if not args.headed:
+        args.headed = questionary.confirm("Does this page require login?", default=False).ask()
+
+    urls, cookies = find_m3u8_urls(page_url, want=stream_pref if stream_pref != "ask" else "master", headed=args.headed)
     if not urls:
         print("No .m3u8 URLs found.")
         sys.exit(1)
