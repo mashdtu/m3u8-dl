@@ -8,6 +8,7 @@ import time
 from urllib.parse import urlparse
 
 import questionary
+from prompt_toolkit.formatted_text import FormattedText
 from tqdm import tqdm
 from playwright.sync_api import sync_playwright
 
@@ -29,9 +30,10 @@ def label_for_url(url: str) -> str:
     return f"[stream]  {name}"
 
 
-def find_m3u8_urls(page_url: str, want: str = "master", headed: bool = False) -> tuple[list[str], list]:
+def find_m3u8_urls(page_url: str, want: str = "master", headed: bool = False) -> tuple[list[str], list, str]:
     m3u8_urls = []
     raw_cookies = []
+    page_title = ""
 
     timeout_ms = 120_000 if headed else 30_000
 
@@ -71,10 +73,14 @@ def find_m3u8_urls(page_url: str, want: str = "master", headed: bool = False) ->
             t.join()
 
         raw_cookies = context.cookies()
+        try:
+            page_title = page.title()
+        except Exception:
+            pass
 
         browser.close()
 
-    return list(dict.fromkeys(m3u8_urls)), raw_cookies
+    return list(dict.fromkeys(m3u8_urls)), raw_cookies, page_title
 
 
 def list_formats(m3u8_url: str, cookie_file: str) -> list[tuple[str, str]]:
@@ -146,19 +152,6 @@ if __name__ == "__main__":
             sys.exit(0)
         page_url = page_url.replace("\\", "")
 
-    if not output:
-        output = questionary.text("Output filename:").ask()
-        if not output:
-            sys.exit(0)
-
-    if not output.endswith(".mp4"):
-        output += ".mp4"
-
-    if os.path.exists(output):
-        overwrite = questionary.confirm(f"'{output}' already exists. Overwrite?", default=False).ask()
-        if not overwrite:
-            sys.exit(0)
-
     stream_pref = questionary.select(
         "Which stream?",
         choices=[
@@ -173,7 +166,28 @@ if __name__ == "__main__":
     if not args.headed:
         args.headed = questionary.confirm("Does this page require login?", default=False).ask()
 
-    urls, cookies = find_m3u8_urls(page_url, want=stream_pref if stream_pref != "ask" else "master", headed=args.headed)
+    urls, cookies, page_title = find_m3u8_urls(page_url, want=stream_pref if stream_pref != "ask" else "master", headed=args.headed)
+
+    if not output:
+        default_name = page_title.strip() if page_title.strip() else "video"
+        _placeholder = FormattedText([("italic fg:ansibrightblack", default_name)])
+        output = questionary.text("Output filename:", placeholder=_placeholder).ask()
+        if output is None:
+            sys.exit(0)
+        if not output:
+            output = default_name
+            qmark    = "\033[38;2;95;129;157m?\033[0m"
+            question = "\033[1mOutput filename:\033[0m"
+            answer   = f"\033[1m\033[38;2;255;157;0m{output}\033[0m"
+            sys.stdout.write(f"\033[1A\r\033[2K{qmark} {question} {answer}\n")
+
+    if not output.endswith(".mp4"):
+        output += ".mp4"
+
+    if os.path.exists(output):
+        overwrite = questionary.confirm(f"'{output}' already exists. Overwrite?", default=False).ask()
+        if not overwrite:
+            sys.exit(0)
     if not urls:
         print("No .m3u8 URLs found.")
         sys.exit(1)
