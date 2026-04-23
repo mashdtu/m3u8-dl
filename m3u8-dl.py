@@ -121,6 +121,9 @@ def download(m3u8_url: str, output: str, cookies: list):
             "--format", fmt,
             "--output", output,
             "--no-part",
+            "--quiet",
+            "--progress",
+            "--print", "after_move:filepath",
             m3u8_url,
         ]
         subprocess.run(cmd)
@@ -146,6 +149,14 @@ if __name__ == "__main__":
     if not output:
         output = questionary.text("Output filename:", default="video.mp4").ask()
         if not output:
+            sys.exit(0)
+
+    if not output.endswith(".mp4"):
+        output += ".mp4"
+
+    if os.path.exists(output):
+        overwrite = questionary.confirm(f"'{output}' already exists. Overwrite?", default=False).ask()
+        if not overwrite:
             sys.exit(0)
 
     stream_pref = questionary.select(
@@ -181,5 +192,19 @@ if __name__ == "__main__":
         print(f"Selected: {label_for_url(chosen)}")
 
     print(f"Downloading to {output}...")
-    download(chosen, output, cookies)
-    print("Done.")
+    saved = download(chosen, output, cookies) or output
+    stream_label = "camera/video" if "master" in chosen else "slides/screen"
+    size_str = ""
+    try:
+        size = os.path.getsize(saved)
+        if size >= 1_073_741_824:
+            size_str = f"  ({size / 1_073_741_824:.2f} GB)"
+        elif size >= 1_048_576:
+            size_str = f"  ({size / 1_048_576:.1f} MB)"
+        else:
+            size_str = f"  ({size / 1024:.0f} KB)"
+    except OSError:
+        pass
+    print(f"\nDownload complete.")
+    print(f"  Stream : {stream_label}")
+    print(f"  Saved  : {saved}{size_str}\n")
